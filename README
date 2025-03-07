@@ -10,3 +10,9 @@ size of this service doesn't really warrant that since the cost of
 throwing it all away and rewriting it from scratch is so low. Maybe
 get an AI to write it all out but that would just clutter it up right
 now and defeat the purpose of having a clean demonstration.
+
+curl localhost:8080/base -T data/XRAY/DICOM/PA000001/ST000001/SE000001/IM000001
+curl localhost:8080/base | file -
+curl localhost:8080/base/image | file -
+curl 'localhost:8080/base/tag?name=FileMetaInformationVersion'
+curl 'localhost:8080/base/tag?name=InvalidTagName' -v
