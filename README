@@ -4,3 +4,9 @@ It's pretty simple actually, mostly all living inside a single
 function. If the design ever needed to increase in scope then it'll
 need some refactoring but this gets the job done fast enough in a
 clear and concise way. KISS principles and all that
+
+Some test cases/benchmarks/metrics/telemetry would be nice but the
+size of this service doesn't really warrant that since the cost of
+throwing it all away and rewriting it from scratch is so low. Maybe
+get an AI to write it all out but that would just clutter it up right
+now and defeat the purpose of having a clean demonstration.
