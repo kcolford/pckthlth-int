@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"image/png"
 	"io"
 	"log"
@@ -51,19 +50,6 @@ func ginfn(fn func(*gin.Context) error) func(*gin.Context) {
 	}
 }
 
-func ErrorHandler(c *gin.Context) {
-	c.Next()
-	err := c.Errors.Last()
-	if err != nil {
-		status := http.StatusInternalServerError
-		var s StatusError
-		if errors.As(err, &s) {
-			status = s.status
-		}
-		c.JSON(status, c.Errors)
-	}
-}
-
 func run() (err error) {
 	tmpdir, err := os.MkdirTemp(os.TempDir(), "dicomserving")
 	if err != nil {
@@ -75,17 +61,13 @@ func run() (err error) {
 	}
 	defer storage.Close()
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Logger(), gin.Recovery(), gin.ErrorLogger())
+	r.SetTrustedProxies([]string{"127.0.0.0/8", "::1"}) /* preserve ip address under istio/trusted proxies */
 
-	/* preserve ip address under istio/trusted proxies */
-	r.SetTrustedProxies([]string{"127.0.0.0/8", "::1"})
-
-	r.Use(ErrorHandler)
-
-	r.GET("/:id", ginfn(func(ctx *gin.Context) (err error) {
+	r.GET("/:id", func(ctx *gin.Context) {
 		ctx.FileFromFS(ctx.Param("id"), http.FS(storage.FS()))
-		return
-	}))
+	})
 
 	r.PUT("/:id", ginfn(func(ctx *gin.Context) (err error) {
 		file, err := storage.Create(ctx.Param("id"))
@@ -101,7 +83,8 @@ func run() (err error) {
 	r.GET("/:id/tag", ginfn(func(ctx *gin.Context) (err error) {
 		tag, err := tag.FindByName(ctx.Query("name"))
 		if err != nil {
-			return NewStatusError(http.StatusBadRequest, err)
+			ctx.Status(http.StatusBadRequest)
+			return
 		}
 
 		file, err := storage.Open(ctx.Param("id"))
@@ -133,14 +116,17 @@ func run() (err error) {
 
 		framechan := make(chan *frame.Frame)
 		grp, c := errgroup.WithContext(ctx)
+
 		grp.Go(func() (err error) {
 			_, err = dicom.ParseUntilEOF(file, framechan)
 			return
 		})
+
 		grp.Go(func() (err error) {
 			f, ok := <-framechan
 			if !ok {
-				return NewStatusError(http.StatusNoContent, errors.New("no image content found"))
+				ctx.String(http.StatusNoContent, "no image content found")
+				return
 			}
 
 			/* drain the framechan so it doesn't get backed up and halt the parser */
@@ -151,7 +137,6 @@ func run() (err error) {
 						return c.Err()
 					case _, ok := <-framechan:
 						if !ok {
-
 							return nil
 						}
 					}
@@ -172,6 +157,7 @@ func run() (err error) {
 			ctx.DataFromReader(http.StatusOK, int64(buf.Len()), http.DetectContentType(buf.Bytes()), buf, nil)
 			return
 		})
+
 		return grp.Wait()
 	}))
 	return r.Run(":8080")
