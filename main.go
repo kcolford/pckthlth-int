@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"image/png"
 	"io"
 	"log"
@@ -15,14 +16,51 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type StatusError struct {
+	internal error
+	status   int
+}
+
+func NewStatusError(status int, wrapped error) StatusError {
+	return StatusError{
+		internal: wrapped,
+		status:   status,
+	}
+}
+
+func (s StatusError) Error() string {
+	return s.internal.Error()
+}
+
+func (s StatusError) Unwrap() error {
+	return s.internal
+}
+
+func (s StatusError) Is(target error) bool {
+	_, ok := target.(StatusError)
+	return ok
+}
+
 /* quick function to make some boilerplate easier */
 func ginfn(fn func(*gin.Context) error) func(*gin.Context) {
 	return func(c *gin.Context) {
 		err := fn(c)
 		if err != nil {
 			c.Error(err)
-			c.JSON(http.StatusInternalServerError, c.Errors[0].JSON())
 		}
+	}
+}
+
+func ErrorHandler(c *gin.Context) {
+	c.Next()
+	err := c.Errors.Last()
+	if err != nil {
+		status := http.StatusInternalServerError
+		var s StatusError
+		if errors.As(err, &s) {
+			status = s.status
+		}
+		c.JSON(status, c.Errors)
 	}
 }
 
@@ -38,6 +76,11 @@ func run() (err error) {
 	defer storage.Close()
 
 	r := gin.Default()
+
+	/* preserve ip address under istio/trusted proxies */
+	r.SetTrustedProxies([]string{"127.0.0.0/8", "::1"})
+
+	r.Use(ErrorHandler)
 
 	r.GET("/:id", ginfn(func(ctx *gin.Context) (err error) {
 		ctx.FileFromFS(ctx.Param("id"), http.FS(storage.FS()))
@@ -58,8 +101,7 @@ func run() (err error) {
 	r.GET("/:id/tag", ginfn(func(ctx *gin.Context) (err error) {
 		tag, err := tag.FindByName(ctx.Query("name"))
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, err)
-			return
+			return NewStatusError(http.StatusBadRequest, err)
 		}
 
 		file, err := storage.Open(ctx.Param("id"))
@@ -98,9 +140,7 @@ func run() (err error) {
 		grp.Go(func() (err error) {
 			f, ok := <-framechan
 			if !ok {
-				/* no images were found */
-				ctx.Status(http.StatusNoContent)
-				return
+				return NewStatusError(http.StatusNoContent, errors.New("no image content found"))
 			}
 
 			/* drain the framechan so it doesn't get backed up and halt the parser */
@@ -109,7 +149,11 @@ func run() (err error) {
 					select {
 					case <-c.Done():
 						return c.Err()
-					case <-framechan:
+					case _, ok := <-framechan:
+						if !ok {
+
+							return nil
+						}
 					}
 				}
 			})
