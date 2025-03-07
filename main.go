@@ -15,32 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type StatusError struct {
-	internal error
-	status   int
-}
-
-func NewStatusError(status int, wrapped error) StatusError {
-	return StatusError{
-		internal: wrapped,
-		status:   status,
-	}
-}
-
-func (s StatusError) Error() string {
-	return s.internal.Error()
-}
-
-func (s StatusError) Unwrap() error {
-	return s.internal
-}
-
-func (s StatusError) Is(target error) bool {
-	_, ok := target.(StatusError)
-	return ok
-}
-
-/* quick function to make some boilerplate easier */
+// quick function to make some boilerplate easier
 func ginfn(fn func(*gin.Context) error) func(*gin.Context) {
 	return func(c *gin.Context) {
 		err := fn(c)
@@ -63,7 +38,8 @@ func run() (err error) {
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), gin.ErrorLogger())
-	r.SetTrustedProxies([]string{"127.0.0.0/8", "::1"}) /* preserve ip address under istio/trusted proxies */
+	// preserve ip address under istio/trusted proxies
+	r.SetTrustedProxies([]string{"127.0.0.0/8", "::1"})
 
 	r.GET("/:id", func(ctx *gin.Context) {
 		ctx.FileFromFS(ctx.Param("id"), http.FS(storage.FS()))
@@ -129,7 +105,8 @@ func run() (err error) {
 				return
 			}
 
-			/* drain the framechan so it doesn't get backed up and halt the parser */
+			// drain the framechan so it doesn't get
+			// backed up and halt the parser
 			grp.Go(func() error {
 				for {
 					select {

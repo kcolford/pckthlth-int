@@ -1,0 +1,6 @@
+Sample go micro service for processing dicom files.
+
+It's pretty simple actually, mostly all living inside a single
+function. If the design ever needed to increase in scope then it'll
+need some refactoring but this gets the job done fast enough in a
+clear and concise way. KISS principles and all that
