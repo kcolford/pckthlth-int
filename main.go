@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"image/png"
 	"io"
 	"log"
@@ -88,12 +87,12 @@ func run() (err error) {
 		if err != nil {
 			return
 		}
-		defer file.Close()
 
 		framechan := make(chan *frame.Frame)
 		grp, c := errgroup.WithContext(ctx)
 
 		grp.Go(func() (err error) {
+			defer file.Close()
 			_, err = dicom.ParseUntilEOF(file, framechan)
 			return
 		})
@@ -101,7 +100,7 @@ func run() (err error) {
 		grp.Go(func() (err error) {
 			f, ok := <-framechan
 			if !ok {
-				ctx.String(http.StatusNoContent, "no image content found")
+				ctx.Status(http.StatusNoContent)
 				return
 			}
 
@@ -125,19 +124,19 @@ func run() (err error) {
 				return
 			}
 
-			buf := bytes.NewBuffer(nil)
-			err = png.Encode(buf, img)
-			if err != nil {
-				return
-			}
+			pr, pw := io.Pipe()
+			grp.Go(func() error {
+				defer pw.Close()
+				return png.Encode(pw, img)
+			})
 
-			ctx.DataFromReader(http.StatusOK, int64(buf.Len()), http.DetectContentType(buf.Bytes()), buf, nil)
+			ctx.DataFromReader(http.StatusOK, -1, "image/png", pr, nil)
 			return
 		})
 
 		return grp.Wait()
 	}))
-	return r.Run(":8080")
+	return r.Run()
 }
 
 func main() {
